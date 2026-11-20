@@ -1,0 +1,1916 @@
+{
+  "schema": "ledger-cases/1",
+  "notes": "每条 expect 均由人工按规格判定，未从实现反推。digest 由 README 所述规范摘要算法独立算出（sha256(\"message\\0\" + canonical_json + \"\\0\")）。",
+  "cases": [
+    {
+      "case_id": "01-rule-matching-and-deny-precedence",
+      "description": "精确规则与末尾整段通配的匹配；同一订阅者同时命中 allow 与 deny 时 deny 优先；中间段通配与含通配的非整段（如 order*）均被拒。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c1-r1",
+          "partition": 0,
+          "topic": "orders.eu.v1"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c1-r2",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "billing",
+              "pattern": "orders.eu.*",
+              "effect": "allow"
+            },
+            {
+              "subscriber": "audit",
+              "pattern": "orders.eu.*",
+              "effect": "allow"
+            },
+            {
+              "subscriber": "audit",
+              "pattern": "orders.eu.v1",
+              "effect": "deny"
+            },
+            {
+              "subscriber": "ops",
+              "pattern": "orders.*",
+              "effect": "allow"
+            },
+            {
+              "subscriber": "exact",
+              "pattern": "orders.eu.v1",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c1-r3",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c1-r4",
+          "version": 2,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 1
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "x",
+              "pattern": "orders.*.v1",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c1-r5",
+          "version": 3,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 2
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "x",
+              "pattern": "order*.eu.v1",
+              "effect": "allow"
+            }
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "partition": 0,
+            "topic": "orders.eu.v1",
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1,
+            "coverage": {
+              "0": 0
+            },
+            "subscribers": [
+              "audit",
+              "billing",
+              "exact",
+              "ops"
+            ],
+            "previous_version": null
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "partition": 0,
+            "offset": 0,
+            "topic": "orders.eu.v1",
+            "digest": "f194f9a45e4221627f9f9a7ca1e7774d2cc8053d2bb5f6d65a843af849077a16",
+            "policy_version": 1,
+            "subscribers": [
+              "billing",
+              "exact"
+            ],
+            "duplicate": false,
+            "original_request_id": "c1-r3"
+          }
+        },
+        {
+          "class": "invalid",
+          "error_code": "RULE_INVALID"
+        },
+        {
+          "class": "invalid",
+          "error_code": "RULE_INVALID"
+        }
+      ]
+    },
+    {
+      "case_id": "02-two-partitions-distinct-boundaries",
+      "description": "固定两个分区，同一策略版本给出不同生效偏移；边界前后各自选到对的版本。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c2-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "declare_partition",
+          "request_id": "c2-r2",
+          "partition": 1,
+          "topic": "orders.us"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c2-r3",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            },
+            {
+              "partition": 1,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "eu",
+              "pattern": "orders.eu",
+              "effect": "allow"
+            },
+            {
+              "subscriber": "us",
+              "pattern": "orders.us",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c2-r4",
+          "version": 2,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 5
+            },
+            {
+              "partition": 1,
+              "effective_offset": 9
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "eu",
+              "pattern": "orders.eu",
+              "effect": "allow"
+            },
+            {
+              "subscriber": "us",
+              "pattern": "orders.us",
+              "effect": "allow"
+            },
+            {
+              "subscriber": "both",
+              "pattern": "orders.*",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c2-r5",
+          "partition": 0,
+          "offset": 4,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c2-r6",
+          "partition": 0,
+          "offset": 5,
+          "payload": {
+            "order": "A-2"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c2-r7",
+          "partition": 1,
+          "offset": 8,
+          "payload": {
+            "order": "A-3"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c2-r8",
+          "partition": 1,
+          "offset": 9,
+          "payload": {
+            "order": "A-1"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 2,
+            "previous_version": 1,
+            "coverage": {
+              "0": 5,
+              "1": 9
+            },
+            "max_seen_before": {
+              "0": -1,
+              "1": -1
+            }
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 4,
+            "policy_version": 1,
+            "subscribers": [
+              "eu"
+            ],
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 5,
+            "policy_version": 2,
+            "subscribers": [
+              "both",
+              "eu"
+            ],
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 8,
+            "policy_version": 1,
+            "subscribers": [
+              "us"
+            ],
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 9,
+            "policy_version": 2,
+            "subscribers": [
+              "both",
+              "us"
+            ],
+            "duplicate": false
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "03-policy-switch-fails-atomically",
+      "description": "分区 0 的生效偏移合法、分区 1 的偏低：整次切换拒绝，且不得留下任何版本 2 的行。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c3-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "declare_partition",
+          "request_id": "c3-r2",
+          "partition": 1,
+          "topic": "orders.us"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c3-r3",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            },
+            {
+              "partition": 1,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "eu",
+              "pattern": "orders.eu",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c3-r4",
+          "partition": 1,
+          "offset": 7,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c3-r5",
+          "version": 2,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 100
+            },
+            {
+              "partition": 1,
+              "effective_offset": 7
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "both",
+              "pattern": "orders.*",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "state",
+          "tenant": "acme"
+        },
+        {
+          "op": "publish",
+          "request_id": "c3-r6",
+          "partition": 0,
+          "offset": 200,
+          "payload": {
+            "order": "A-2"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 7,
+            "policy_version": 1
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "VERSION_BELOW_WATERMARK",
+          "error_details": {
+            "partition": 1,
+            "effective_offset": 7,
+            "max_seen": 7
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "current_policy_version": 1,
+            "policies": [
+              {
+                "version": 1
+              }
+            ]
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 200,
+            "policy_version": 1,
+            "subscribers": [
+              "eu"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "04-watermark-seals-holes",
+      "description": "乱序发布 0/2/3，水位推到 4 把 1 封成永久空洞；空洞下的迟到发布被拒；水位不能回退或跳。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c4-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c4-r2",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "eu",
+              "pattern": "orders.*",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c4-r3",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c4-r4",
+          "partition": 0,
+          "offset": 2,
+          "payload": {
+            "order": "A-2"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c4-r5",
+          "partition": 0,
+          "offset": 3,
+          "payload": {
+            "order": "A-3"
+          }
+        },
+        {
+          "op": "advance_watermark",
+          "request_id": "c4-r6",
+          "partition": 0,
+          "target": 4
+        },
+        {
+          "op": "publish",
+          "request_id": "c4-r7",
+          "partition": 0,
+          "offset": 1,
+          "payload": {
+            "order": "A-4"
+          }
+        },
+        {
+          "op": "advance_watermark",
+          "request_id": "c4-r8",
+          "partition": 0,
+          "target": 2
+        },
+        {
+          "op": "advance_watermark",
+          "request_id": "c4-r9",
+          "partition": 0,
+          "target": 4
+        },
+        {
+          "op": "state",
+          "tenant": "acme"
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 0,
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 2,
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 3,
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "previous": 0,
+            "watermark": 4,
+            "advanced": true,
+            "sealed_holes": [
+              1
+            ],
+            "sealed_hole_count": 1
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "WATERMARK_BELOW_HOLE",
+          "error_details": {
+            "partition": 0,
+            "offset": 1,
+            "watermark": 4
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "WATERMARK_REGRESS",
+          "error_details": {
+            "partition": 0,
+            "current": 4,
+            "target": 2
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "advanced": false,
+            "watermark": 4,
+            "sealed_hole_count": 0
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "partitions": [
+              {
+                "partition": 0,
+                "watermark": 4,
+                "max_offset": 3,
+                "message_count": 3,
+                "permanent_holes": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "05-history-duplicate-precedes-watermark",
+      "description": "水位封住偏移 1 后，重发已存在的偏移 0 仍判为历史重复（成功），重发偏移 1 才报永久空洞；同偏移换内容报冲突。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c5-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c5-r2",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "eu",
+              "pattern": "orders.eu",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c5-r3",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "advance_watermark",
+          "request_id": "c5-r4",
+          "partition": 0,
+          "target": 2
+        },
+        {
+          "op": "publish",
+          "request_id": "c5-r5",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c5-r6",
+          "partition": 0,
+          "offset": 1,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c5-r7",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-2"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 0,
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "previous": 0,
+            "watermark": 2,
+            "sealed_holes": [
+              1
+            ]
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 0,
+            "duplicate": true,
+            "policy_version": 1,
+            "original_request_id": "c5-r3"
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "WATERMARK_BELOW_HOLE"
+        },
+        {
+          "class": "rejected",
+          "error_code": "MESSAGE_CONFLICT",
+          "error_details": {
+            "partition": 0,
+            "offset": 0,
+            "original_request_id": "c5-r3"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "06-old-and-new-rule-replay",
+      "description": "旧洞迟到与新旧规则重放：v1 下发布 0/2，v2 生效于 3；迟到的偏移 1 仍按 v1 结算，偏移 3 按 v2 结算；重放偏移 3 拿到 v2 的冻结订阅者集合。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c6-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c6-r2",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "old",
+              "pattern": "orders.*",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c6-r3",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c6-r4",
+          "partition": 0,
+          "offset": 2,
+          "payload": {
+            "order": "A-2"
+          }
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c6-r5",
+          "version": 2,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 3
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "new",
+              "pattern": "orders.*",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c6-r6",
+          "partition": 0,
+          "offset": 3,
+          "payload": {
+            "order": "A-3"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c6-r7",
+          "partition": 0,
+          "offset": 1,
+          "payload": {
+            "order": "A-4"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c6-r8",
+          "partition": 0,
+          "offset": 3,
+          "payload": {
+            "order": "A-3"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c6-r9",
+          "partition": 0,
+          "offset": 1,
+          "payload": {
+            "order": "A-4"
+          }
+        },
+        {
+          "op": "get_message",
+          "tenant": "acme",
+          "partition": 0,
+          "offset": 1
+        },
+        {
+          "op": "get_message",
+          "tenant": "acme",
+          "partition": 0,
+          "offset": 3
+        },
+        {
+          "op": "state",
+          "tenant": "acme"
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 0,
+            "policy_version": 1,
+            "subscribers": [
+              "old"
+            ]
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 2,
+            "policy_version": 1,
+            "subscribers": [
+              "old"
+            ]
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 2,
+            "previous_version": 1,
+            "max_seen_before": {
+              "0": 2
+            },
+            "coverage": {
+              "0": 3
+            }
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 3,
+            "policy_version": 2,
+            "subscribers": [
+              "new"
+            ],
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 1,
+            "policy_version": 1,
+            "subscribers": [
+              "old"
+            ],
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 3,
+            "policy_version": 2,
+            "subscribers": [
+              "new"
+            ],
+            "duplicate": true,
+            "original_request_id": "c6-r6"
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 1,
+            "policy_version": 1,
+            "subscribers": [
+              "old"
+            ],
+            "duplicate": true,
+            "original_request_id": "c6-r7"
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 1,
+            "policy_version": 1,
+            "subscribers": [
+              "old"
+            ],
+            "first_request_id": "c6-r7"
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 3,
+            "policy_version": 2,
+            "subscribers": [
+              "new"
+            ],
+            "first_request_id": "c6-r6"
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "current_policy_version": 2,
+            "policies": [
+              {
+                "version": 1,
+                "coverage": {
+                  "0": 0
+                }
+              },
+              {
+                "version": 2,
+                "coverage": {
+                  "0": 3
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "07-request-id-idempotency",
+      "description": "同 ID 同参返回已持久化的首次结果（不重算订阅者），同 ID 异参拒绝；不同租户可用相同请求 ID。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c7-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c7-r2",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "eu",
+              "pattern": "orders.*",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c7-r3",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c7-r4",
+          "version": 2,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 1
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "other",
+              "pattern": "orders.*",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c7-r3",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c7-r3",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-2"
+          }
+        },
+        {
+          "op": "get_receipt",
+          "tenant": "acme",
+          "request_id": "c7-r3"
+        },
+        {
+          "op": "get_receipt",
+          "tenant": "acme",
+          "request_id": "c7-missing"
+        },
+        {
+          "op": "declare_partition",
+          "request_id": "c7-r1",
+          "tenant": "beta",
+          "partition": 0,
+          "topic": "orders.eu"
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "subscribers": [
+              "eu"
+            ]
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 2
+          }
+        },
+        {
+          "class": "ok",
+          "replayed": true,
+          "result": {
+            "subscribers": [
+              "eu"
+            ],
+            "policy_version": 1
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "REQUEST_CONFLICT"
+        },
+        {
+          "class": "ok",
+          "result": {
+            "request_id": "c7-r3",
+            "receipt": {
+              "class": "ok",
+              "result": {
+                "subscribers": [
+                  "eu"
+                ],
+                "policy_version": 1
+              }
+            }
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "RECEIPT_NOT_FOUND"
+        },
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "08-business-rejection-is-persisted-state",
+      "description": "业务失败的回执与业务状态可区分：被拒的发布记录下拒绝回执，同 ID 重放返回同一拒绝（replayed=true）；而输入非法不产生回执。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c8-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c8-r2",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "eu",
+              "pattern": "orders.*",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "c8-r3",
+          "partition": 0,
+          "offset": 5,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "advance_watermark",
+          "request_id": "c8-r4",
+          "partition": 0,
+          "target": 6
+        },
+        {
+          "op": "publish",
+          "request_id": "c8-r5",
+          "partition": 0,
+          "offset": 2,
+          "payload": {
+            "order": "A-2"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c8-r5",
+          "partition": 0,
+          "offset": 2,
+          "payload": {
+            "order": "A-2"
+          }
+        },
+        {
+          "op": "get_receipt",
+          "tenant": "acme",
+          "request_id": "c8-r5"
+        },
+        {
+          "op": "publish",
+          "request_id": "c8-r6",
+          "partition": 0,
+          "offset": -1,
+          "payload": {
+            "order": "A-3"
+          }
+        },
+        {
+          "op": "get_receipt",
+          "tenant": "acme",
+          "request_id": "c8-r6"
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 5,
+            "duplicate": false
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "sealed_holes": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ],
+            "sealed_hole_count": 5
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "WATERMARK_BELOW_HOLE",
+          "replayed": false
+        },
+        {
+          "class": "rejected",
+          "error_code": "WATERMARK_BELOW_HOLE",
+          "replayed": true
+        },
+        {
+          "class": "ok",
+          "result": {
+            "receipt": {
+              "class": "rejected",
+              "error": {
+                "code": "WATERMARK_BELOW_HOLE"
+              }
+            }
+          }
+        },
+        {
+          "class": "invalid",
+          "error_code": "OFFSET_INVALID"
+        },
+        {
+          "class": "rejected",
+          "error_code": "RECEIPT_NOT_FOUND"
+        }
+      ]
+    },
+    {
+      "case_id": "09-version-monotonic-per-partition",
+      "description": "同一分区连续版本的生效偏移必须严格递增；版本号必须全租户单调；两者都违例时整次拒绝。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c9-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "declare_partition",
+          "request_id": "c9-r2",
+          "partition": 1,
+          "topic": "orders.us"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c9-r3",
+          "version": 10,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 3
+            },
+            {
+              "partition": 1,
+              "effective_offset": 2
+            }
+          ],
+          "rules": []
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c9-r4",
+          "version": 11,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 3
+            },
+            {
+              "partition": 1,
+              "effective_offset": 5
+            }
+          ],
+          "rules": []
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c9-r5",
+          "version": 9,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 9
+            },
+            {
+              "partition": 1,
+              "effective_offset": 9
+            }
+          ],
+          "rules": []
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c9-r6",
+          "version": 12,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 4
+            },
+            {
+              "partition": 1,
+              "effective_offset": 6
+            }
+          ],
+          "rules": []
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c9-r7",
+          "version": 13,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 5
+            }
+          ],
+          "rules": []
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 10,
+            "previous_version": null
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "VERSION_NOT_MONOTONIC",
+          "error_details": {
+            "partition": 0,
+            "effective_offset": 3,
+            "previous_version": 10,
+            "previous_effective_offset": 3
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "VERSION_CONFLICT",
+          "error_details": {
+            "version": 9,
+            "last_version": 10
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 12,
+            "previous_version": 10,
+            "coverage": {
+              "0": 4,
+              "1": 6
+            }
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "COVERAGE_PARTIAL",
+          "error_details": {
+            "missing": [
+              1
+            ],
+            "declared": [
+              0,
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "10-tenant-isolation",
+      "description": "租户之间完全隔离：同一分区号、同一偏移各自独立；租户内请求 ID 不与其他租户冲突。",
+      "tenant": "alpha",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "r1",
+          "tenant": "alpha",
+          "partition": 0,
+          "topic": "notes.a"
+        },
+        {
+          "op": "declare_partition",
+          "request_id": "r2",
+          "tenant": "beta",
+          "partition": 0,
+          "topic": "notes.b"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "r3",
+          "tenant": "alpha",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "a",
+              "pattern": "notes.a",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "register_policy",
+          "request_id": "r3",
+          "tenant": "beta",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "b",
+              "pattern": "notes.b",
+              "effect": "allow"
+            }
+          ]
+        },
+        {
+          "op": "publish",
+          "request_id": "r4",
+          "tenant": "alpha",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "n": 1
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "r4",
+          "tenant": "beta",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "n": 2
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "r5",
+          "tenant": "beta",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "n": 1
+          }
+        },
+        {
+          "op": "state",
+          "tenant": "alpha"
+        },
+        {
+          "op": "state",
+          "tenant": "beta"
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "topic": "notes.a",
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "topic": "notes.b",
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "subscribers": [
+              "a"
+            ]
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "subscribers": [
+              "b"
+            ]
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "MESSAGE_CONFLICT"
+        },
+        {
+          "class": "ok",
+          "result": {
+            "partitions": [
+              {
+                "partition": 0,
+                "topic": "notes.a",
+                "message_count": 1
+              }
+            ],
+            "policies": [
+              {
+                "version": 1
+              }
+            ]
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "partitions": [
+              {
+                "partition": 0,
+                "topic": "notes.b",
+                "message_count": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "11-version-declaration-must-match",
+      "description": "发布可声明 policy_version；与覆盖该偏移的实际版本不符时拒绝，且该拒绝被持久化。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "declare_partition",
+          "request_id": "c11-r1",
+          "partition": 0,
+          "topic": "orders.eu"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c11-r2",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": []
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c11-r3",
+          "version": 2,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 10
+            }
+          ],
+          "rules": []
+        },
+        {
+          "op": "publish",
+          "request_id": "c11-r4",
+          "partition": 0,
+          "offset": 12,
+          "policy_version": 1,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c11-r5",
+          "partition": 0,
+          "offset": 12,
+          "policy_version": 2,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "publish",
+          "request_id": "c11-r6",
+          "partition": 0,
+          "offset": 9,
+          "policy_version": 1,
+          "payload": {
+            "order": "A-2"
+          }
+        },
+        {
+          "op": "get_message",
+          "tenant": "acme",
+          "partition": 0,
+          "offset": 12
+        }
+      ],
+      "expect": [
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "version": 2
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "VERSION_NOT_APPLICABLE",
+          "error_details": {
+            "partition": 0,
+            "offset": 12,
+            "requested_version": 1,
+            "effective_version": 2
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 12,
+            "policy_version": 2
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 9,
+            "policy_version": 1
+          }
+        },
+        {
+          "class": "ok",
+          "result": {
+            "offset": 12,
+            "policy_version": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "12-input-invalid-vs-business-rejected",
+      "description": "结构性错误归入 invalid（无回执）；依赖账本状态的拒绝归入 rejected（有回执）。",
+      "tenant": "acme",
+      "requests": [
+        {
+          "op": "publish",
+          "request_id": "c12-r1",
+          "partition": 0,
+          "offset": 0,
+          "payload": {
+            "order": "A-1"
+          }
+        },
+        {
+          "op": "declare_partition",
+          "request_id": "c12-r2",
+          "partition": 0,
+          "topic": "bad topic"
+        },
+        {
+          "op": "declare_partition",
+          "request_id": "c12-r3",
+          "partition": 0,
+          "topic": "notes.a"
+        },
+        {
+          "op": "declare_partition",
+          "request_id": "c12-r4",
+          "partition": 0,
+          "topic": "notes.b"
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c12-r5",
+          "version": 0,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": []
+        },
+        {
+          "op": "register_policy",
+          "request_id": "c12-r6",
+          "version": 1,
+          "coverage": [
+            {
+              "partition": 0,
+              "effective_offset": 0
+            }
+          ],
+          "rules": [
+            {
+              "subscriber": "a",
+              "pattern": "notes.*",
+              "effect": "maybe"
+            }
+          ]
+        },
+        {
+          "op": "totally_unknown",
+          "request_id": "c12-r7",
+          "tenant": "acme"
+        },
+        {
+          "op": "state",
+          "tenant": "ghost"
+        }
+      ],
+      "expect": [
+        {
+          "class": "rejected",
+          "error_code": "TENANT_UNKNOWN"
+        },
+        {
+          "class": "invalid",
+          "error_code": "TOPIC_INVALID"
+        },
+        {
+          "class": "ok",
+          "result": {
+            "created": true
+          }
+        },
+        {
+          "class": "rejected",
+          "error_code": "PARTITION_TOPIC_CONFLICT"
+        },
+        {
+          "class": "invalid",
+          "error_code": "VERSION_INVALID"
+        },
+        {
+          "class": "invalid",
+          "error_code": "RULE_INVALID"
+        },
+        {
+          "class": "invalid",
+          "error_code": "UNKNOWN_OP"
+        },
+        {
+          "class": "rejected",
+          "error_code": "TENANT_UNKNOWN"
+        }
+      ]
+    }
+  ]
+}
